@@ -11,6 +11,7 @@ from aiogram.utils import executor
 import sqlite3
 from datetime import datetime
 import logging
+from aiohttp import web
 
 API_TOKEN = os.getenv('BOT_TOKEN')
 PORT = int(os.getenv('PORT', 5000))  # Значение по умолчанию 5000
@@ -96,7 +97,19 @@ async def redirect_to_channel(message: types.Message):
         reply_markup=types.ReplyKeyboardRemove()
     )
 
+# Устанавливаем webhook
+async def on_start(request):
+    # Устанавливаем webhook
+    await bot.set_webhook(url=f'https://<your-app-name>.render.com/{API_TOKEN}')
+    return web.Response(text="Webhook set")
+
 if __name__ == '__main__':
     init_db()  # Инициализация базы данных
-    from aiogram import executor
-    executor.start_polling(dp, skip_updates=True)
+
+    # Запуск веб-сервера для приема обновлений через webhook
+    from aiohttp import web
+    app = web.Application()
+    app.router.add_post(f'/{API_TOKEN}', dp.process_update)
+    app.router.add_get('/', on_start)  # Для того чтобы стартовать вебхук
+
+    web.run_app(app, port=PORT)
