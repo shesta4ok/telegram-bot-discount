@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: bulavka-telegram-bot
+    env: python
+    buildCommand: ""
+    startCommand: bash start.sh
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: 8080
+      - key: API_TOKEN
+        value: <8171646376:AAEOTvWwgw50HdT5whDd01fgaKBJG83dnxg>
