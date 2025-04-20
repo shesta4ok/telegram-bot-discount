@@ -2,13 +2,12 @@ import logging
 import os
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import ParseMode
-from aiogram.utils import executor
-from aiogram.contrib.middlewares.logging import LoggingMiddleware
 from aiohttp import web
 import asyncio
 
 # Загружаем токен из переменных окружения
 API_TOKEN = os.getenv('API_TOKEN')
+WEBHOOK_URL = os.getenv('WEBHOOK_URL')
 
 # Проверяем, что токен был загружен корректно
 if API_TOKEN is None:
@@ -19,7 +18,6 @@ else:
 # Инициализация бота и диспетчера
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
-dp.middleware.setup(LoggingMiddleware())
 
 # Обработчик команды /start
 @dp.message_handler(commands=['start'])
@@ -64,13 +62,12 @@ async def handle_webhook(request):
 async def on_start():
     logging.info("Bot started...")
     # Устанавливаем webhook на адрес
-    webhook_url = os.getenv('WEBHOOK_URL')
-    if webhook_url is None:
+    if WEBHOOK_URL is None:
         logging.error("WEBHOOK_URL не найден! Убедитесь, что переменная окружения установлена.")
         return
     try:
-        await bot.set_webhook(webhook_url)
-        logging.info(f"Webhook установлен на {webhook_url}")
+        await bot.set_webhook(WEBHOOK_URL)
+        logging.info(f"Webhook установлен на {WEBHOOK_URL}")
     except Exception as e:
         logging.error(f"Ошибка при установке webhook: {e}")
 
