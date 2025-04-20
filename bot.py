@@ -1,80 +1,92 @@
 import logging
+import os
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import ParseMode
 from aiogram.utils import executor
+from aiogram.contrib.middlewares.logging import LoggingMiddleware
 from aiohttp import web
-import os
+import asyncio
 
-API_TOKEN = os.getenv('TELEGRAM_TOKEN')  # Ваш токен
-CHANNEL_USERNAME = '@bulavka_secondhand'  # Ваш канал
+# Загружаем токен из переменных окружения
+API_TOKEN = os.getenv('API_TOKEN')
 
-# Устанавливаем логирование
-logging.basicConfig(level=logging.INFO)
+# Проверяем, что токен был загружен корректно
+if API_TOKEN is None:
+    logging.error("API_TOKEN не загружен!")
+else:
+    logging.info(f"Токен загружен: {API_TOKEN[:10]}...")  # выводим первые 10 символов токена для проверки
 
-# Создаем экземпляры бота и диспетчера
+# Инициализация бота и диспетчера
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
-
-# Сохранение подписок
-subscribed_users = set()  # Хранение ID пользователей, которые подписались на канал
-
-# Установка webhook
-async def on_startup(app):
-    webhook_url = f"https://{os.getenv('RENDER_URL')}/webhook/{API_TOKEN}"
-    await bot.set_webhook(webhook_url)
-    logging.info(f"Webhook set to {webhook_url}")
-
-async def on_shutdown(app):
-    await bot.delete_webhook()
-
-# Обработка webhook запросов
-async def handle_webhook(request):
-    if request.match_info.get('token') != API_TOKEN:
-        return web.Response(status=403)
-
-    data = await request.json()
-    update = types.Update(**data)
-    await dp.process_update(update)
-    return web.Response(status=200)
+dp.middleware.setup(LoggingMiddleware())
 
 # Обработчик команды /start
 @dp.message_handler(commands=['start'])
 async def send_welcome(message: types.Message):
-    user_id = message.from_user.id
-    if user_id not in subscribed_users:
-        await message.reply(
-            "Привет! Подпишитесь на наш канал @bulavka_secondhand и получите скидку 50%! 🎉",
-            parse_mode=ParseMode.MARKDOWN
-        )
-    else:
-        await message.reply("Вы уже подписаны на канал, спасибо! 🎉")
+    logging.info(f"Получено сообщение от {message.from_user.username}")
+    await message.reply(
+        "Привет! Я твой скидочный бот 🎉\nПодпишись на наш канал, и получи скидку 50% на покупку в нашем магазине! 😉",
+        parse_mode=ParseMode.MARKDOWN
+    )
 
-# Проверка подписки на канал
-@dp.message_handler(commands=['check_subscription'])
-async def check_subscription(message: types.Message):
+# Обработчик callback для получения скидки
+@dp.message_handler(commands=['discount'])
+async def send_discount(message: types.Message):
+    # Проверяем, подписан ли пользователь на канал
     user_id = message.from_user.id
+    chat_id = '@bulavka_secondhand'
+
     try:
-        member = await bot.get_chat_member(CHANNEL_USERNAME, user_id)
-        if member.status in ['member', 'administrator', 'creator']:
-            if user_id not in subscribed_users:
-                subscribed_users.add(user_id)
-                await message.reply("Спасибо за подписку! Ваша скидка 50%! Покажите на кассе! 🎉🎉🎉")
-            else:
-                await message.reply("Вы уже получили скидку 50%! 🎉")
+        member = await bot.get_chat_member(chat_id, user_id)
+        if member.status == 'member' or member.status == 'administrator':
+            await message.reply(
+                "Спасибо за подписку! Ваша скидка 50%! Покажите этот код на кассе 😄🎉",
+                parse_mode=ParseMode.MARKDOWN
+            )
         else:
-            await message.reply("Вы не подписаны на канал. Пожалуйста, подпишитесь на @bulavka_secondhand и попробуйте снова. 📲")
+            await message.reply(
+                "Пожалуйста, подпишитесь на наш канал, чтобы получить скидку на покупки! 😅",
+                parse_mode=ParseMode.MARKDOWN
+            )
     except Exception as e:
+        logging.error(f"Ошибка при проверке подписки: {e}")
         await message.reply("Произошла ошибка при проверке подписки. Попробуйте позже.")
-        logging.error(f"Error checking subscription: {e}")
 
-# Запуск webhook сервера
-app = web.Application()
-app.router.add_post(f'/webhook/{API_TOKEN}', handle_webhook)
-app.on_startup.append(on_startup)
-app.on_shutdown.append(on_shutdown)
+# Обработчик webhook
+async def handle_webhook(request):
+    json_str = await request.text()
+    update = types.Update.parse_raw(json_str)
+    await dp.process_update(update)
+    return web.Response()
 
-# Запуск сервера
-if __name__ == '__main__':
-    from aiogram import executor
-    executor.start_polling(dp, skip_updates=True)
+# Устанавливаем webhook
+async def on_start():
+    logging.info("Bot started...")
+    # Устанавливаем webhook на адрес
+    webhook_url = os.getenv('WEBHOOK_URL')
+    if webhook_url is None:
+        logging.error("WEBHOOK_URL не найден! Убедитесь, что переменная окружения установлена.")
+        return
+    try:
+        await bot.set_webhook(webhook_url)
+        logging.info(f"Webhook установлен на {webhook_url}")
+    except Exception as e:
+        logging.error(f"Ошибка при установке webhook: {e}")
+
+# Основная функция
+def main():
+    logging.basicConfig(level=logging.INFO)
+    loop = asyncio.get_event_loop()
+
+    # Запускаем webhook сервер
+    app = web.Application()
+    app.router.add_post(f'/{API_TOKEN}', handle_webhook)
+
+    loop.create_task(on_start())
+
+    # Запускаем сервер на Render
     web.run_app(app, port=10000)
+
+if __name__ == '__main__':
+    main()
