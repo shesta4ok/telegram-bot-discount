@@ -7,7 +7,6 @@ import sqlite3
 from datetime import datetime
 import logging
 from aiohttp import web
-from aiogram.utils.executor import start_webhook
 
 # Загружаем переменные окружения из .env файла
 load_dotenv()
@@ -111,7 +110,14 @@ async def on_shutdown(app):
 app = web.Application()
 
 # Обработчик вебхука
-app.router.add_post(f'/{API_TOKEN}', dp.process_update)
+async def handle_webhook(request):
+    json_str = await request.json()
+    update = types.Update(**json_str)
+    await dp.process_update(update)
+    return web.Response()
+
+# Добавляем роут для обработки POST-запросов с вебхука
+app.router.add_post(f'/{API_TOKEN}', handle_webhook)
 
 # Стартуем сервер
 if __name__ == '__main__':
