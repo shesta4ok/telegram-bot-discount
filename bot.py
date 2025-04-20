@@ -1,27 +1,24 @@
 from dotenv import load_dotenv
 import os
-
-load_dotenv()  # Загружаем переменные окружения из .env файла
-API_TOKEN = os.getenv('BOT_TOKEN')
-
-import os
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import ParseMode
-from aiogram.utils import executor
+from aiogram.types import ParseMode, Update
 import sqlite3
 from datetime import datetime
 import logging
 from aiohttp import web
 
+load_dotenv()
 API_TOKEN = os.getenv('BOT_TOKEN')
-PORT = int(os.getenv('PORT', 5000))  # Значение по умолчанию 5000
+PORT = int(os.getenv('PORT', 5000))
+
+WEBHOOK_PATH = f"/webhook/{API_TOKEN}"
+WEBHOOK_URL = f"https://telegram-bot-discount-1.onrender.com{WEBHOOK_PATH}"
 
 logging.basicConfig(level=logging.INFO)
 
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 
-# Подключаемся к базе данных SQLite (или создаем её, если не существует)
 def init_db():
     conn = sqlite3.connect('user_data.db')
     cursor = conn.cursor()
@@ -34,7 +31,6 @@ def init_db():
     conn.close()
 
 async def check_if_received_discount(user_id):
-    """Проверка, если пользователь уже получил скидку."""
     conn = sqlite3.connect('user_data.db')
     cursor = conn.cursor()
     cursor.execute("SELECT received_discount FROM users WHERE user_id = ?", (user_id,))
@@ -43,7 +39,6 @@ async def check_if_received_discount(user_id):
     return result and result[0] == 1
 
 def mark_discount_given(user_id):
-    """Отметить, что пользователь получил скидку."""
     conn = sqlite3.connect('user_data.db')
     cursor = conn.cursor()
     cursor.execute("INSERT OR REPLACE INTO users (user_id, received_discount, subscription_time) VALUES (?, ?, ?)",
@@ -52,33 +47,26 @@ def mark_discount_given(user_id):
     conn.close()
 
 async def is_subscribed(user_id):
-    """Проверка подписки на канал."""
     try:
         member = await bot.get_chat_member('@bulavka_secondhand', user_id)
         return member.status == 'member'
     except Exception:
         return False
 
-# Команда /start
 @dp.message_handler(commands=['start'])
 async def send_welcome(message: types.Message):
     user_id = message.from_user.id
-
-    # Проверяем, если скидка уже была выдана
     if await check_if_received_discount(user_id):
         await message.reply("Вы уже получили свою скидку! 😎")
         return
 
-    # Проверка подписки
     if await is_subscribed(user_id):
-        # Если подписан и еще не получил скидку
         mark_discount_given(user_id)
         await message.reply(
             "Спасибо за подписку! 🎉 Ваша скидка 50%! Покажите на кассе! 😎",
             parse_mode=ParseMode.MARKDOWN
         )
     else:
-        # Если не подписан
         await message.reply(
             "Привет! 🎉\nПодпишитесь на наш канал @bulavka_secondhand и получите скидку 50%! 👉",
             reply_markup=types.ReplyKeyboardMarkup(
@@ -89,7 +77,6 @@ async def send_welcome(message: types.Message):
             )
         )
 
-# Обработка кнопки "Перейти на канал"
 @dp.message_handler(lambda message: message.text == "Перейти на канал")
 async def redirect_to_channel(message: types.Message):
     await message.reply(
@@ -97,19 +84,16 @@ async def redirect_to_channel(message: types.Message):
         reply_markup=types.ReplyKeyboardRemove()
     )
 
-# Устанавливаем webhook
-async def on_start(request):
-    # Устанавливаем webhook
-    await bot.set_webhook(url=f'https://<your-app-name>.render.com/{API_TOKEN}')
-    return web.Response(text="Webhook set")
+# Запуск сервера с webhook
+async def on_startup(app):
+    await bot.set_webhook(WEBHOOK_URL)
+
+async def on_shutdown(app):
+    await bot.delete_webhook()
+
+app = web.Application()
+app.router.add_post(WEBHOOK_PATH, dp.process_update)
 
 if __name__ == '__main__':
-    init_db()  # Инициализация базы данных
-
-    # Запуск веб-сервера для приема обновлений через webhook
-    from aiohttp import web
-    app = web.Application()
-    app.router.add_post(f'/{API_TOKEN}', dp.process_update)
-    app.router.add_get('/', on_start)  # Для того чтобы стартовать вебхук
-
-    web.run_app(app, port=PORT)
+    init_db()
+    web.run_app(app, port=PORT, on_startup=[on_startup], on_shutdown=[on_shutdown])
