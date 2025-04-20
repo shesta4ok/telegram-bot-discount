@@ -4,17 +4,16 @@ import os
 load_dotenv()  # Загружаем переменные окружения из .env файла
 API_TOKEN = os.getenv('BOT_TOKEN')
 
-import logging
+import os
 from aiogram import Bot, Dispatcher, types
+from aiogram.types import ParseMode
 from aiogram.utils import executor
 import sqlite3
 from datetime import datetime
-from dotenv import load_dotenv
-import os
+import logging
 
-# Загружаем переменные окружения
-load_dotenv()
 API_TOKEN = os.getenv('BOT_TOKEN')
+PORT = int(os.getenv('PORT', 5000))  # Значение по умолчанию 5000
 
 logging.basicConfig(level=logging.INFO)
 
