@@ -1,3 +1,9 @@
+from dotenv import load_dotenv
+import os
+
+load_dotenv()  # Загружаем переменные окружения из .env файла
+API_TOKEN = os.getenv('BOT_TOKEN')
+
 import logging
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import ParseMode
