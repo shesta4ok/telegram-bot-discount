@@ -97,7 +97,7 @@ async def redirect_to_channel(message: types.Message):
 # Устанавливаем webhook
 async def on_startup(app):
     """Устанавливаем webhook при старте приложения"""
-    webhook_url = f'https://{os.getenv("RENDER_APP_URL")}/{API_TOKEN}'  # Используем переменную для URL
+    webhook_url = f'https://telegram-bot-discount-1.onrender.com/{API_TOKEN}'  # Правильный URL для Render
     await bot.set_webhook(url=webhook_url)
     logging.info(f"Webhook set to {webhook_url}")
 
