@@ -7,6 +7,7 @@ import sqlite3
 from datetime import datetime
 import logging
 from aiohttp import web
+from aiogram.utils.executor import start_webhook
 
 # Загружаем переменные окружения из .env файла
 load_dotenv()
