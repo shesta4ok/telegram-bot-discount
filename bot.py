@@ -1,132 +1,80 @@
-from dotenv import load_dotenv
-import os
+import logging
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import ParseMode
 from aiogram.utils import executor
-import sqlite3
-from datetime import datetime
-import logging
 from aiohttp import web
+import os
 
-# Загружаем переменные окружения из .env файла
-load_dotenv()
-API_TOKEN = os.getenv('BOT_TOKEN')
-PORT = int(os.getenv('PORT', 5000))  # Значение по умолчанию 5000
+API_TOKEN = os.getenv('TELEGRAM_TOKEN')  # Ваш токен
+CHANNEL_USERNAME = '@bulavka_secondhand'  # Ваш канал
 
+# Устанавливаем логирование
 logging.basicConfig(level=logging.INFO)
 
+# Создаем экземпляры бота и диспетчера
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 
-# Подключаемся к базе данных SQLite (или создаем её, если не существует)
-def init_db():
-    conn = sqlite3.connect('user_data.db')
-    cursor = conn.cursor()
-    cursor.execute('''CREATE TABLE IF NOT EXISTS users (
-                        user_id INTEGER PRIMARY KEY,
-                        received_discount BOOLEAN DEFAULT 0,
-                        subscription_time TEXT
-                    )''')
-    conn.commit()
-    conn.close()
+# Сохранение подписок
+subscribed_users = set()  # Хранение ID пользователей, которые подписались на канал
 
-async def check_if_received_discount(user_id):
-    """Проверка, если пользователь уже получил скидку."""
-    conn = sqlite3.connect('user_data.db')
-    cursor = conn.cursor()
-    cursor.execute("SELECT received_discount FROM users WHERE user_id = ?", (user_id,))
-    result = cursor.fetchone()
-    conn.close()
-    return result and result[0] == 1
-
-def mark_discount_given(user_id):
-    """Отметить, что пользователь получил скидку."""
-    conn = sqlite3.connect('user_data.db')
-    cursor = conn.cursor()
-    cursor.execute("INSERT OR REPLACE INTO users (user_id, received_discount, subscription_time) VALUES (?, ?, ?)",
-                   (user_id, 1, datetime.now().isoformat()))
-    conn.commit()
-    conn.close()
-
-async def is_subscribed(user_id):
-    """Проверка подписки на канал."""
-    try:
-        member = await bot.get_chat_member('@bulavka_secondhand', user_id)
-        return member.status == 'member'
-    except Exception:
-        return False
-
-# Команда /start
-@dp.message_handler(commands=['start'])
-async def send_welcome(message: types.Message):
-    user_id = message.from_user.id
-
-    # Проверяем, если скидка уже была выдана
-    if await check_if_received_discount(user_id):
-        await message.reply("Вы уже получили свою скидку! 😎")
-        return
-
-    # Проверка подписки
-    if await is_subscribed(user_id):
-        # Если подписан и еще не получил скидку
-        mark_discount_given(user_id)
-        await message.reply(
-            "Спасибо за подписку! 🎉 Ваша скидка 50%! Покажите на кассе! 😎",
-            parse_mode=ParseMode.MARKDOWN
-        )
-    else:
-        # Если не подписан
-        await message.reply(
-            "Привет! 🎉\nПодпишитесь на наш канал @bulavka_secondhand и получите скидку 50%! 👉",
-            reply_markup=types.ReplyKeyboardMarkup(
-                resize_keyboard=True,
-                one_time_keyboard=True
-            ).add(
-                types.KeyboardButton("Перейти на канал")
-            )
-        )
-
-# Обработка кнопки "Перейти на канал"
-@dp.message_handler(lambda message: message.text == "Перейти на канал")
-async def redirect_to_channel(message: types.Message):
-    await message.reply(
-        "Вот ссылка на наш канал: @bulavka_secondhand",
-        reply_markup=types.ReplyKeyboardRemove()
-    )
-
-# Устанавливаем webhook
+# Установка webhook
 async def on_startup(app):
-    """Устанавливаем webhook при старте приложения"""
-    webhook_url = f'https://telegram-bot-discount-1.onrender.com/{API_TOKEN}'  # Правильный URL для Render
-    await bot.set_webhook(url=webhook_url)
+    webhook_url = f"https://{os.getenv('RENDER_URL')}/webhook/{API_TOKEN}"
+    await bot.set_webhook(webhook_url)
     logging.info(f"Webhook set to {webhook_url}")
 
 async def on_shutdown(app):
-    """Удаляем webhook при остановке приложения"""
     await bot.delete_webhook()
-    logging.info("Webhook deleted")
 
-# Создаём веб-сервер
-app = web.Application()
-
-# Обработчик вебхука
+# Обработка webhook запросов
 async def handle_webhook(request):
-    json_str = await request.json()
-    update = types.Update(**json_str)
+    if request.match_info.get('token') != API_TOKEN:
+        return web.Response(status=403)
+
+    data = await request.json()
+    update = types.Update(**data)
     await dp.process_update(update)
-    return web.Response()
+    return web.Response(status=200)
 
-# Добавляем роут для обработки POST-запросов с вебхука
-app.router.add_post(f'/{API_TOKEN}', handle_webhook)
+# Обработчик команды /start
+@dp.message_handler(commands=['start'])
+async def send_welcome(message: types.Message):
+    user_id = message.from_user.id
+    if user_id not in subscribed_users:
+        await message.reply(
+            "Привет! Подпишитесь на наш канал @bulavka_secondhand и получите скидку 50%! 🎉",
+            parse_mode=ParseMode.MARKDOWN
+        )
+    else:
+        await message.reply("Вы уже подписаны на канал, спасибо! 🎉")
 
-# Стартуем сервер
+# Проверка подписки на канал
+@dp.message_handler(commands=['check_subscription'])
+async def check_subscription(message: types.Message):
+    user_id = message.from_user.id
+    try:
+        member = await bot.get_chat_member(CHANNEL_USERNAME, user_id)
+        if member.status in ['member', 'administrator', 'creator']:
+            if user_id not in subscribed_users:
+                subscribed_users.add(user_id)
+                await message.reply("Спасибо за подписку! Ваша скидка 50%! Покажите на кассе! 🎉🎉🎉")
+            else:
+                await message.reply("Вы уже получили скидку 50%! 🎉")
+        else:
+            await message.reply("Вы не подписаны на канал. Пожалуйста, подпишитесь на @bulavka_secondhand и попробуйте снова. 📲")
+    except Exception as e:
+        await message.reply("Произошла ошибка при проверке подписки. Попробуйте позже.")
+        logging.error(f"Error checking subscription: {e}")
+
+# Запуск webhook сервера
+app = web.Application()
+app.router.add_post(f'/webhook/{API_TOKEN}', handle_webhook)
+app.on_startup.append(on_startup)
+app.on_shutdown.append(on_shutdown)
+
+# Запуск сервера
 if __name__ == '__main__':
-    logging.info(f"Starting bot on port {PORT}...")
-    init_db()  # Инициализация базы данных
-
-    # Добавляем обработчики для старта и остановки
-    app.on_startup.append(on_startup)
-    app.on_shutdown.append(on_shutdown)
-
-    # Запускаем веб-сервер для обработки запросов
-    web.run_app(app, port=PORT)
+    from aiogram import executor
+    executor.start_polling(dp, skip_updates=True)
+    web.run_app(app, port=10000)
